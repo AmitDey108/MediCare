@@ -1,238 +1,357 @@
-import axios from "axios";
-import React, { useEffect, useState } from "react";
+import React, { useContext, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { toast } from "react-toastify";
-import { API_BASE_URL, getErrorMessage } from "../utils/api";
+import { Context } from "../context/appContext";
+import { api, departments, getErrorMessage } from "../utils/api";
+
+const createInitialForm = (user) => ({
+  firstName: user?.firstName || "",
+  lastName: user?.lastName || "",
+  email: user?.email || "",
+  phone: user?.phone || "",
+  nic: user?.nic || "",
+  dob: user?.dob ? new Date(user.dob).toISOString().split("T")[0] : "",
+  gender: user?.gender || "",
+  appointment_date: "",
+  appointment_time: "",
+  department: user?.preferredDepartment || "",
+  doctorId: "",
+  address: user?.address || "",
+  reasonForVisit: "",
+  symptoms: "",
+  patientNotes: "",
+  hasVisited: false,
+});
+
+const validateAppointmentForm = (form) => {
+  const requiredFields = [
+    "firstName",
+    "lastName",
+    "email",
+    "phone",
+    "nic",
+    "dob",
+    "gender",
+    "appointment_date",
+    "appointment_time",
+    "department",
+    "address",
+    "reasonForVisit",
+  ];
+
+  const missingFields = requiredFields.filter((field) =>
+    !String(form[field] || "").trim()
+  );
+
+  if (missingFields.length) {
+    return `Please complete: ${missingFields.join(", ")}.`;
+  }
+
+  if (!/^\S+@\S+\.\S+$/.test(form.email)) {
+    return "Please enter a valid email address.";
+  }
+
+  const appointmentDateTime = new Date(
+    `${form.appointment_date}T${form.appointment_time}:00`
+  );
+
+  if (
+    Number.isNaN(appointmentDateTime.getTime()) ||
+    appointmentDateTime < new Date()
+  ) {
+    return "Please select a future appointment date and time.";
+  }
+
+  return "";
+};
 
 const AppointmentForm = () => {
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [nic, setNic] = useState("");
-  const [dob, setDob] = useState("");
-  const [gender, setGender] = useState("");
-  const [appointmentDate, setAppointmentDate] = useState("");
-  const [department, setDepartment] = useState("Pediatrics");
-  const [doctorFirstName, setDoctorFirstName] = useState("");
-  const [doctorLastName, setDoctorLastName] = useState("");
-  const [address, setAddress] = useState("");
-  const [hasVisited, setHasVisited] = useState(false);
+  const navigate = useNavigate();
+  const { patient, setPatient } = useContext(Context);
+  const [form, setForm] = useState(createInitialForm(patient.user));
   const [doctors, setDoctors] = useState([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoadingDoctors, setIsLoadingDoctors] = useState(true);
 
-  const departmentsArray = [
-    "Pediatrics",
-    "Orthopedics",
-    "Cardiology",
-    "Neurology",
-    "Oncology",
-    "Radiology",
-    "Physical Therapy",
-    "Dermatology",
-    "ENT",
-  ];
+  useEffect(() => {
+    setForm(createInitialForm(patient.user));
+  }, [patient.user]);
 
   useEffect(() => {
     const fetchDoctors = async () => {
       try {
-        const { data } = await axios.get(`${API_BASE_URL}/user/doctors`, {
-          withCredentials: true,
-        });
-        setDoctors(data.doctors);
+        const { data } = await api.get("/user/doctors");
+        setDoctors(data.doctors || []);
       } catch (error) {
-        setDoctors([]);
         toast.error(getErrorMessage(error, "Unable to load doctors."));
+      } finally {
+        setIsLoadingDoctors(false);
       }
     };
 
     fetchDoctors();
   }, []);
 
-  const handleAppointment = async (e) => {
-    e.preventDefault();
+  useEffect(() => {
+    if (patient.isAuthenticated || patient.user) {
+      return;
+    }
+
+    const fetchProfile = async () => {
+      try {
+        const { data } = await api.get("/user/patient/me");
+        setPatient({
+          isAuthenticated: true,
+          user: data.user,
+        });
+      } catch {
+        // keep unauthenticated state
+      }
+    };
+
+    fetchProfile();
+  }, [patient.isAuthenticated, patient.user, setPatient]);
+
+  const doctorsForDepartment = useMemo(
+    () =>
+      doctors.filter((doctor) => doctor.doctorDepartment === form.department),
+    [doctors, form.department]
+  );
+
+  const handleChange = ({ target: { name, value, type, checked } }) => {
+    setForm((current) => ({
+      ...current,
+      [name]: type === "checkbox" ? checked : value,
+      ...(name === "department" ? { doctorId: "" } : {}),
+    }));
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+
+    if (!patient.isAuthenticated) {
+      toast.error("Please log in to book an appointment.");
+      navigate("/login");
+      return;
+    }
+
+    const validationMessage = validateAppointmentForm(form);
+    if (validationMessage) {
+      toast.error(validationMessage);
+      return;
+    }
+
+    setIsSubmitting(true);
 
     try {
-      const { data } = await axios.post(
-        `${API_BASE_URL}/appointment/post`,
-        {
-          firstName,
-          lastName,
-          email,
-          phone,
-          nic,
-          dob,
-          gender,
-          appointment_date: appointmentDate,
-          department,
-          doctor_firstName: doctorFirstName,
-          doctor_lastName: doctorLastName,
-          hasVisited: Boolean(hasVisited),
-          address,
-        },
-        {
-          withCredentials: true,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-
+      const { data } = await api.post("/appointment/post", form);
       toast.success(data.message);
-      setFirstName("");
-      setLastName("");
-      setEmail("");
-      setPhone("");
-      setNic("");
-      setDob("");
-      setGender("");
-      setAppointmentDate("");
-      setDepartment(departmentsArray[0]);
-      setDoctorFirstName("");
-      setDoctorLastName("");
-      setHasVisited(false);
-      setAddress("");
+      setForm(createInitialForm(patient.user));
+      navigate("/profile");
     } catch (error) {
       toast.error(getErrorMessage(error, "Unable to book the appointment."));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <>
-      <div className="container form-component appointment-form">
-        <h2>Appointment</h2>
-        <form onSubmit={handleAppointment}>
-          <div>
+    <section className="appointment-section container">
+      <div className="section-heading">
+        <span className="section-tag">Appointments</span>
+        <h2>Patient booking that stays in sync with the admin panel</h2>
+        <p>
+          Bookings immediately appear in the admin dashboard, where the care team
+          can approve, assign, or reschedule them.
+        </p>
+      </div>
+
+      <div className="two-column-layout">
+        <form className="form-card" onSubmit={handleSubmit}>
+          <div className="form-row">
             <input
-              type="text"
-              placeholder="First Name"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
+              name="firstName"
+              placeholder="First name"
+              value={form.firstName}
+              onChange={handleChange}
             />
             <input
-              type="text"
-              placeholder="Last Name"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
+              name="lastName"
+              placeholder="Last name"
+              value={form.lastName}
+              onChange={handleChange}
             />
           </div>
-          <div>
+          <div className="form-row">
             <input
-              type="text"
+              name="email"
+              type="email"
               placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
+              value={form.email}
+              onChange={handleChange}
             />
             <input
-              type="number"
-              placeholder="Mobile Number"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
+              name="phone"
+              placeholder="Phone"
+              value={form.phone}
+              onChange={handleChange}
             />
           </div>
-          <div>
+          <div className="form-row">
             <input
-              type="number"
-              placeholder="NIC"
-              value={nic}
-              onChange={(e) => setNic(e.target.value)}
+              name="nic"
+              placeholder="National ID"
+              value={form.nic}
+              onChange={handleChange}
             />
             <input
+              name="dob"
               type="date"
-              placeholder="Date of Birth"
-              value={dob}
-              onChange={(e) => setDob(e.target.value)}
+              value={form.dob}
+              onChange={handleChange}
             />
           </div>
-          <div>
-            <select value={gender} onChange={(e) => setGender(e.target.value)}>
-              <option value="">Select Gender</option>
+          <div className="form-row">
+            <select name="gender" value={form.gender} onChange={handleChange}>
+              <option value="">Select gender</option>
               <option value="Male">Male</option>
               <option value="Female">Female</option>
+              <option value="Other">Other</option>
             </select>
+            <select
+              name="department"
+              value={form.department}
+              onChange={handleChange}
+            >
+              <option value="">Select department</option>
+              {departments.map((department) => (
+                <option key={department} value={department}>
+                  {department}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="form-row">
             <input
+              name="appointment_date"
               type="date"
-              placeholder="Appointment Date"
-              value={appointmentDate}
-              onChange={(e) => setAppointmentDate(e.target.value)}
+              min={new Date().toISOString().split("T")[0]}
+              value={form.appointment_date}
+              onChange={handleChange}
+            />
+            <input
+              name="appointment_time"
+              type="time"
+              value={form.appointment_time}
+              onChange={handleChange}
             />
           </div>
-          <div>
+          <div className="form-row">
             <select
-              value={department}
-              onChange={(e) => {
-                setDepartment(e.target.value);
-                setDoctorFirstName("");
-                setDoctorLastName("");
-              }}
+              name="doctorId"
+              value={form.doctorId}
+              onChange={handleChange}
+              disabled={!form.department || isLoadingDoctors}
             >
-              {departmentsArray.map((depart, index) => {
-                return (
-                  <option value={depart} key={index}>
-                    {depart}
-                  </option>
-                );
-              })}
+              <option value="">Any available doctor</option>
+              {doctorsForDepartment.map((doctor) => (
+                <option key={doctor._id} value={doctor._id}>
+                  Dr. {doctor.firstName} {doctor.lastName}
+                </option>
+              ))}
             </select>
-            <select
-              value={
-                doctorFirstName && doctorLastName
-                  ? JSON.stringify({
-                      firstName: doctorFirstName,
-                      lastName: doctorLastName,
-                    })
-                  : ""
-              }
-              onChange={(e) => {
-                if (!e.target.value) {
-                  setDoctorFirstName("");
-                  setDoctorLastName("");
-                  return;
-                }
-
-                const { firstName, lastName } = JSON.parse(e.target.value);
-                setDoctorFirstName(firstName);
-                setDoctorLastName(lastName);
-              }}
-              disabled={!department}
-            >
-              <option value="">Select Doctor</option>
-              {doctors
-                .filter((doctor) => doctor.doctorDepartment === department)
-                .map((doctor, index) => (
-                  <option
-                    key={index}
-                    value={JSON.stringify({
-                      firstName: doctor.firstName,
-                      lastName: doctor.lastName,
-                    })}
-                  >
-                    {doctor.firstName} {doctor.lastName}
-                  </option>
-                ))}
-            </select>
+            <input
+              name="reasonForVisit"
+              placeholder="Reason for visit"
+              value={form.reasonForVisit}
+              onChange={handleChange}
+            />
+          </div>
+          <div className="form-row">
+            <textarea
+              rows="4"
+              name="symptoms"
+              placeholder="Symptoms"
+              value={form.symptoms}
+              onChange={handleChange}
+            />
+            <textarea
+              rows="4"
+              name="patientNotes"
+              placeholder="Additional notes"
+              value={form.patientNotes}
+              onChange={handleChange}
+            />
           </div>
           <textarea
-            rows="10"
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
+            rows="4"
+            name="address"
             placeholder="Address"
+            value={form.address}
+            onChange={handleChange}
           />
-          <div
-            style={{
-              gap: "10px",
-              justifyContent: "flex-end",
-              flexDirection: "row",
-            }}
-          >
-            <p style={{ marginBottom: 0 }}>Have you visited before?</p>
+          <label className="checkbox-row">
             <input
               type="checkbox"
-              checked={hasVisited}
-              onChange={(e) => setHasVisited(e.target.checked)}
-              style={{ flex: "none", width: "25px" }}
+              name="hasVisited"
+              checked={form.hasVisited}
+              onChange={handleChange}
             />
-          </div>
-          <button style={{ margin: "0 auto" }}>GET APPOINTMENT</button>
+            <span>I have visited ZeeCare before</span>
+          </label>
+          <button type="submit" className="primary-button" disabled={isSubmitting}>
+            {isSubmitting ? "Booking..." : "Confirm Appointment"}
+          </button>
         </form>
+
+        <aside className="side-card">
+          <span className="section-tag">Doctor Directory</span>
+          <h3>{form.department || "Choose a department"}</h3>
+          <p>
+            Select a department to see available doctors, or leave the doctor
+            field blank to let the admin team assign the best match.
+          </p>
+          <div className="side-card-list">
+            {form.department && doctorsForDepartment.length ? (
+              doctorsForDepartment.map((doctor) => (
+                <article className="directory-card" key={doctor._id}>
+                  <img
+                    src={doctor.docAvatar?.url || "/hero.png"}
+                    alt={`${doctor.firstName} ${doctor.lastName}`}
+                  />
+                  <div>
+                    <strong>
+                      Dr. {doctor.firstName} {doctor.lastName}
+                    </strong>
+                    <span>{doctor.specialization || doctor.doctorDepartment}</span>
+                    <small>
+                      {doctor.availabilityStatus} -{" "}
+                      {doctor.doctorSchedule || "Schedule on request"}
+                    </small>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <div>
+                <p className="muted-copy">
+                  {isLoadingDoctors
+                    ? "Loading doctors..."
+                    : form.department
+                      ? "No currently available doctors in this department."
+                      : "Choose a department to view available doctors."}
+                </p>
+                {!isLoadingDoctors && (
+                  <Link to="/doctors" className="secondary-button">
+                    View Full Doctor List
+                  </Link>
+                )}
+              </div>
+            )}
+          </div>
+        </aside>
       </div>
-    </>
+    </section>
   );
 };
 

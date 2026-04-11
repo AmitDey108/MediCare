@@ -1,84 +1,101 @@
-import axios from "axios";
 import React, { useState } from "react";
 import { toast } from "react-toastify";
-import { API_BASE_URL, getErrorMessage } from "../utils/api";
+import { api, getErrorMessage } from "../utils/api";
+
+const initialForm = {
+  firstName: "",
+  lastName: "",
+  email: "",
+  phone: "",
+  subject: "",
+  message: "",
+};
 
 const MessageForm = () => {
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [email, setEmail] = useState("");
-  const [phone, setPhone] = useState("");
-  const [message, setMessage] = useState("");
+  const [form, setForm] = useState(initialForm);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleMessage = async (e) => {
-    e.preventDefault();
+  const handleChange = ({ target: { name, value } }) => {
+    setForm((current) => ({
+      ...current,
+      [name]: value,
+    }));
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    setIsSubmitting(true);
+
     try {
-      const res = await axios.post(
-        `${API_BASE_URL}/message/send`,
-        { firstName, lastName, email, phone, message },
-        {
-          withCredentials: true,
-          headers: { "Content-Type": "application/json" },
-        }
-      );
-
-      toast.success(res.data.message);
-      setFirstName("");
-      setLastName("");
-      setEmail("");
-      setPhone("");
-      setMessage("");
+      const { data } = await api.post("/message/send", form);
+      toast.success(data.message);
+      setForm(initialForm);
     } catch (error) {
       toast.error(getErrorMessage(error, "Unable to send your message."));
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   return (
-    <>
-      <div className="container form-component message-form">
-        <h2>Send Us A Message</h2>
-        <form onSubmit={handleMessage}>
-          <div>
-            <input
-              type="text"
-              placeholder="First Name"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-            />
-            <input
-              type="text"
-              placeholder="Last Name"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-            />
-          </div>
-          <div>
-            <input
-              type="text"
-              placeholder="Email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-            />
-            <input
-              type="number"
-              placeholder="Mobile Number"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-            />
-          </div>
-          <textarea
-            rows={7}
-            placeholder="Message"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-          />
-          <div style={{ justifyContent: "center", alignItems: "center" }}>
-            <button type="submit">Send</button>
-          </div>
-        </form>
-        <img src="/Vector.png" alt="vector" />
+    <section className="message-section container">
+      <div className="section-heading">
+        <span className="section-tag">Contact</span>
+        <h2>Send a message to the care coordination desk</h2>
+        <p>
+          Every message lands directly in the admin inbox, where the team can
+          review, resolve, and track communication.
+        </p>
       </div>
-    </>
+
+      <form className="form-card" onSubmit={handleSubmit}>
+        <div className="form-row">
+          <input
+            name="firstName"
+            placeholder="First name"
+            value={form.firstName}
+            onChange={handleChange}
+          />
+          <input
+            name="lastName"
+            placeholder="Last name"
+            value={form.lastName}
+            onChange={handleChange}
+          />
+        </div>
+        <div className="form-row">
+          <input
+            name="email"
+            type="email"
+            placeholder="Email"
+            value={form.email}
+            onChange={handleChange}
+          />
+          <input
+            name="phone"
+            placeholder="Phone"
+            value={form.phone}
+            onChange={handleChange}
+          />
+        </div>
+        <input
+          name="subject"
+          placeholder="Subject"
+          value={form.subject}
+          onChange={handleChange}
+        />
+        <textarea
+          rows="6"
+          name="message"
+          placeholder="Tell us how we can help"
+          value={form.message}
+          onChange={handleChange}
+        />
+        <button type="submit" className="primary-button" disabled={isSubmitting}>
+          {isSubmitting ? "Sending..." : "Send Message"}
+        </button>
+      </form>
+    </section>
   );
 };
 
